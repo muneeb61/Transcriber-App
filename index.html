@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reel: transcribe any recording fast with Groq</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F4F5FA; --card: #FFFFFF; --ink: #151827; --muted: #5A6075;
+    --line: #DCDFEA; --bar: #C8CDDD; --accent: #4A35E0; --accent-soft: #ECE9FF;
+    --play: #FFF1A8; --mark: #FFE56B; --ok: #14804F; --warn: #B4531A; --warn-soft: #FFF1E6;
+    --ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --read: "Newsreader", Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  body { background: var(--paper); color: var(--ink); font-family: var(--ui); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .page { max-width: 880px; margin: 0 auto; padding: 28px 20px 96px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; letter-spacing: -0.01em; }
+  .brand svg { width: 28px; height: 28px; color: var(--accent); }
+  .hero { margin: 44px 0 32px; }
+  h1 { font-size: clamp(2.1rem, 5.4vw, 3.5rem); line-height: 1.04; letter-spacing: -0.035em; font-weight: 650; max-width: 17ch; }
+  .lede { margin-top: 18px; color: var(--muted); font-size: 1.08rem; max-width: 56ch; }
+  .engine { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: var(--accent-soft); border-radius: 18px; padding: 14px 18px; margin-bottom: 20px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--bar); flex-shrink: 0; }
+  .dot.fast { background: var(--ok); box-shadow: 0 0 0 5px rgba(20,128,79,0.16); }
+  .dot.slow { background: var(--warn); box-shadow: 0 0 0 5px rgba(180,83,26,0.14); }
+  .engine-text { flex: 1; min-width: 220px; display: flex; flex-direction: column; }
+  .engine-text strong { font-weight: 600; }
+  .engine-text span { color: var(--muted); font-size: 0.93rem; }
+  /* API key card */
+  .apikey { background: var(--card); border: 1.5px solid var(--line); border-radius: 18px; padding: 18px 20px; margin-bottom: 28px; }
+  .apikey h2 { font-size: 1.05rem; font-weight: 650; margin-bottom: 6px; }
+  .apikey p { color: var(--muted); font-size: 0.93rem; margin-bottom: 12px; max-width: 62ch; }
+  .apikey p a { color: var(--accent); font-weight: 600; }
+  .keyrow { display: flex; gap: 10px; flex-wrap: wrap; }
+  .keyrow input { flex: 1 1 260px; font: inherit; color: var(--ink); background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 11px 12px; min-width: 0; }
+  .keystatus { font-size: 0.9rem; margin-top: 10px; color: var(--muted); }
+  .keystatus.ok { color: var(--ok); font-weight: 600; }
+  .keystatus.bad { color: var(--warn); font-weight: 600; }
+  .check { display: inline-flex; align-items: center; gap: 8px; font-size: 0.93rem; cursor: pointer; }
+  .check input { width: 17px; height: 17px; accent-color: var(--accent); }
+  .settings { display: grid; grid-template-columns: 1fr 220px; gap: 24px; align-items: start; margin-bottom: 28px; }
+  fieldset { border: 0; min-width: 0; }
+  legend, .field > label { font-weight: 600; margin-bottom: 8px; display: block; padding: 0; }
+  .models { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .model { position: relative; display: block; cursor: pointer; }
+  .model input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+  .model-body { display: flex; flex-direction: column; gap: 4px; height: 100%; border: 1.5px solid var(--line); background: var(--card); border-radius: 14px; padding: 14px 14px 16px; transition: border-color .15s, background .15s; }
+  .model-body b { font-size: 1.02rem; font-weight: 600; }
+  .model-body small { color: var(--muted); font-size: 0.85rem; line-height: 1.4; }
+  .model:hover .model-body { border-color: var(--bar); }
+  .model input:checked + .model-body { border-color: var(--accent); background: var(--accent-soft); }
+  .model input:focus-visible + .model-body { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .rec { font-style: normal; font-size: 0.78rem; font-weight: 600; color: var(--accent); margin-top: 4px; }
+  select, input[type="search"] { font: inherit; color: var(--ink); background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 11px 12px; width: 100%; }
+  .field .hint { color: var(--muted); font-size: 0.83rem; margin-top: 6px; line-height: 1.4; }
+  .drop { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; min-height: 210px; padding: 36px; background: var(--card); border: 2px dashed #B6BCD3; border-radius: 24px; cursor: pointer; transition: background .15s, border-color .15s; }
+  .drop input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .drop:hover { border-color: var(--accent); }
+  .drop:focus-within { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .drop.drag { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+  .drop-title { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.02em; }
+  .drop-sub { color: var(--muted); max-width: 52ch; margin-bottom: 14px; }
+  body.has-file .drop { min-height: 0; padding: 16px 22px; flex-direction: row; align-items: center; justify-content: space-between; border-radius: 18px; }
+  body.has-file .drop-title { font-size: 1.05rem; }
+  body.has-file .drop-sub { display: none; }
+  body.has-file .drop .btn { margin: 0; }
+  .btn { font: inherit; font-weight: 600; font-size: 0.95rem; color: var(--ink); background: transparent; border: 1.5px solid var(--ink); border-radius: 999px; padding: 9px 18px; cursor: pointer; display: inline-block; line-height: 1.3; transition: background .15s, color .15s; }
+  .btn:hover:not(:disabled) { background: var(--ink); color: #fff; }
+  .btn:disabled { opacity: .38; cursor: not-allowed; }
+  .btn-solid { background: var(--ink); color: #fff; }
+  .btn-solid:hover { background: var(--accent); border-color: var(--accent); }
+  .drop:hover .btn-solid { background: var(--accent); border-color: var(--accent); }
+  body.busy .drop { opacity: .5; cursor: not-allowed; }
+  .work { margin-top: 36px; }
+  .work-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .work-head h2 { font-size: 1.3rem; letter-spacing: -0.015em; font-weight: 650; word-break: break-word; }
+  .work-head p { color: var(--muted); font-size: 0.93rem; }
+  .work-actions { display: flex; gap: 8px; }
+  video#media { width: 100%; max-height: 44vh; background: #000; border-radius: 16px; display: block; }
+  video#media.audio-only { height: 54px; background: transparent; border-radius: 999px; }
+  .wave { display: block; width: 100%; height: 104px; margin-top: 14px; cursor: pointer; }
+  .status { margin-top: 10px; min-height: 28px; }
+  #statusText { color: var(--ink); font-size: 0.97rem; }
+  .bar { height: 6px; background: var(--line); border-radius: 99px; margin-top: 10px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 99px; transition: width .2s; }
+  .notice { margin-top: 12px; padding: 12px 16px; border-radius: 12px; background: var(--warn-soft); border-left: 4px solid var(--warn); font-size: 0.95rem; }
+  .transcript { margin-top: 26px; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-bottom: 14px; }
+  .tools .search-wrap { flex: 1 1 220px; display: flex; align-items: center; gap: 10px; }
+  #searchCount { color: var(--muted); font-size: 0.88rem; white-space: nowrap; }
+  details.menu { position: relative; }
+  details.menu summary { list-style: none; }
+  details.menu summary::-webkit-details-marker { display: none; }
+  details.menu[aria-disabled="true"] summary { opacity: .38; pointer-events: none; }
+  .menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 6; min-width: 180px; background: var(--card); border: 1.5px solid var(--ink); border-radius: 14px; padding: 6px; display: flex; flex-direction: column; }
+  .menu-list button { font: inherit; text-align: left; background: none; border: 0; border-radius: 9px; padding: 9px 12px; cursor: pointer; color: var(--ink); }
+  .menu-list button:hover { background: var(--accent-soft); }
+  #scroller { max-height: 62vh; overflow: auto; position: relative; border-top: 1px solid var(--line); }
+  .segments { list-style: none; }
+  .seg { display: grid; grid-template-columns: 4.6rem 1fr; gap: 12px; padding: 11px 12px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; }
+  .seg.playing { background: var(--play); border-left-color: var(--accent); }
+  .ts { font: inherit; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--accent); background: none; border: 0; text-align: left; cursor: pointer; padding: 2px 0; align-self: start; }
+  .ts:hover { text-decoration: underline; }
+  .txt { font-family: var(--read); font-size: 1.14rem; line-height: 1.55; max-width: 66ch; }
+  mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .empty { color: var(--muted); padding: 22px 12px; }
+  .foot { margin-top: 56px; color: var(--muted); font-size: 0.88rem; max-width: 62ch; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 12px); background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 999px; font-size: 0.93rem; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 20; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (max-width: 720px) {
+    .settings { grid-template-columns: 1fr; }
+    .models { grid-template-columns: 1fr; }
+    .drop { padding: 26px 22px; }
+    body.has-file .drop { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .seg { grid-template-columns: 3.9rem 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <span class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="2.2"/><circle cx="7.6" cy="9.2" r="1.5" fill="currentColor" stroke="none"/><circle cx="16.4" cy="9.2" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="17" r="1.5" fill="currentColor" stroke="none"/></svg>
+      Reel &middot; Groq
+    </span>
+  </header>
+  <section class="hero">
+    <h1>Turn any recording into a timestamped transcript — fast.</h1>
+    <p class="lede">Drop in a video or audio file. Groq's Whisper Large V3 Turbo transcribes it on fast servers, so 1 hour of audio takes about a minute, not hours. Your file is sent to Groq only for transcription.</p>
+  </section>
+  <section class="engine" id="engine" aria-live="polite">
+    <span class="dot fast" id="engineDot"></span>
+    <div class="engine-text">
+      <strong id="engineTitle">Groq Fast API &mdash; whisper-large-v3-turbo</strong>
+      <span id="engineDetail">About 200&times; real time. Free tier: 8 hours of audio a day, no card needed.</span>
+    </div>
+  </section>
+
+  <section class="apikey" id="apiKeyBox">
+    <h2>1. Your free Groq API key</h2>
+    <p>Get a free key at <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a> &mdash; sign in, click Create API Key, copy it. Paste it here once. It stays saved only in this browser, and is sent only to api.groq.com for transcription. Never share it or paste it anywhere else.</p>
+    <div class="keyrow">
+      <input type="password" id="apiKey" placeholder="gsk_..." autocomplete="off" spellcheck="false" aria-label="Groq API key">
+      <button class="btn" id="toggleKeyBtn" type="button">Show</button>
+      <button class="btn btn-solid" id="saveKeyBtn" type="button">Save key</button>
+      <button class="btn" id="clearKeyBtn" type="button">Clear</button>
+    </div>
+    <p class="keystatus" id="keyStatus">No key saved yet.</p>
+  </section>
+
+  <section class="settings">
+    <fieldset>
+      <legend>Model</legend>
+      <div class="models" id="models">
+        <label class="model">
+          <input type="radio" name="model" value="whisper-large-v3-turbo" checked>
+          <span class="model-body"><b>Turbo &mdash; Fast</b><small>Best speed. Great for podcasts and clips. This is the one to use.</small><em class="rec">Suggested</em></span>
+        </label>
+        <label class="model">
+          <input type="radio" name="model" value="whisper-large-v3">
+          <span class="model-body"><b>Large V3 &mdash; Accurate</b><small>Highest accuracy. A bit slower, still very fast. Use if Turbo misses words.</small></span>
+        </label>
+      </div>
+    </fieldset>
+    <div class="field">
+      <label for="lang">Spoken language</label>
+      <select id="lang">
+        <option value="auto">Detect automatically</option>
+        <option value="en">English</option>
+        <option value="ur">Urdu</option>
+        <option value="hi">Hindi</option>
+        <option value="pa">Punjabi</option>
+        <option value="ar">Arabic</option>
+        <option value="bn">Bengali</option>
+        <option value="es" selected>Spanish</option>
+        <option value="fr">French</option>
+        <option value="de">German</option>
+        <option value="pt">Portuguese</option>
+        <option value="it">Italian</option>
+        <option value="ru">Russian</option>
+        <option value="tr">Turkish</option>
+        <option value="id">Indonesian</option>
+        <option value="zh">Chinese</option>
+        <option value="ja">Japanese</option>
+        <option value="ko">Korean</option>
+      </select>
+      <p class="hint">Pick the language if you know it &mdash; it is faster and more accurate than Auto. Spanish is pre-selected for your podcasts.</p>
+    </div>
+  </section>
+
+  <label class="drop" id="drop">
+    <input type="file" id="fileInput" accept="audio/*,video/*,.mkv,.m4a,.aac,.flac,.ogg,.opus">
+    <span class="drop-title">Drop a recording here</span>
+    <span class="drop-sub">MP4, MOV, WebM, MP3, WAV, M4A and more. Long files are fine &mdash; files over 25 MB are split into 10-minute pieces automatically and joined back together.</span>
+    <span class="btn btn-solid">Choose file</span>
+  </label>
+
+  <section class="work" id="work" hidden>
+    <div class="work-head">
+      <div>
+        <h2 id="fileName"></h2>
+        <p id="fileMeta"></p>
+      </div>
+      <div class="work-actions">
+        <button class="btn" id="cancelBtn" hidden>Stop</button>
+        <button class="btn" id="againBtn" hidden>Transcribe again</button>
+      </div>
+    </div>
+    <video id="media" controls playsinline preload="metadata"></video>
+    <canvas id="wave" class="wave" aria-label="Waveform of the recording. Click to jump to a point."></canvas>
+    <div class="status">
+      <p id="statusText" role="status"></p>
+      <div class="bar" id="loadBar" hidden><i id="loadFill"></i></div>
+    </div>
+    <p class="notice" id="notice" hidden></p>
+    <div class="transcript">
+      <div class="tools">
+        <div class="search-wrap">
+          <input type="search" id="search" placeholder="Search the transcript" aria-label="Search the transcript">
+          <span id="searchCount"></span>
+        </div>
+        <label class="check"><input type="checkbox" id="followToggle" checked> Follow playback</label>
+        <label class="check"><input type="checkbox" id="tsToggle" checked> Timestamps in copy and .txt</label>
+        <button class="btn" id="copyBtn" disabled>Copy</button>
+        <details class="menu" id="dlMenu" aria-disabled="true">
+          <summary class="btn">Download</summary>
+          <div class="menu-list">
+            <button data-fmt="txt">Text (.txt)</button>
+            <button data-fmt="srt">Subtitles (.srt)</button>
+            <button data-fmt="vtt">Web subtitles (.vtt)</button>
+            <button data-fmt="json">Data (.json)</button>
+          </div>
+        </details>
+      </div>
+      <div id="scroller">
+        <ol class="segments" id="segments"></ol>
+        <p class="empty" id="empty">The transcript appears here as it's written. Click any timestamp to play from that point.</p>
+      </div>
+    </div>
+  </section>
+  <p class="foot">Your Groq key stays in this browser only (localStorage). Your file is sent to Groq (api.groq.com) for transcription and is not kept by Reel. Free Groq limits: 25 MB per request (this app splits longer files for you), 20 requests a minute, 2,000 a day, 8 hours of audio a day. If you hit a limit, wait a bit and try again.</p>
+</main>
+<div class="toast" id="toast" role="status"></div>
+<script>
+"use strict";
+/*
+  Reel + Groq — how it works
+  - Endpoint: POST https://api.groq.com/openai/v1/audio/transcriptions
+  - Model: whisper-large-v3-turbo (default) or whisper-large-v3
+  - Form: file, model, language (ISO code, omitted for Auto),
+    response_format=verbose_json, timestamp_granularities[]=segment
+  - Groq free limit is 25 MB per request, so long audio is split into
+    ~10-minute WAV chunks (16 kHz mono = ~19 MB each), cut at a quiet
+    spot near the 10-minute mark so words are not cut in half.
+  - Small files that Groq accepts directly (<24 MB, mp3/mp4/m4a/wav/webm/
+    ogg/flac) are sent as one request, no re-encoding.
+  - 2 chunks run at a time. A 429 (rate limit) is retried with backoff.
+*/
+const $ = (id) => document.getElementById(id);
+const SR = 16000;
+const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+const KEY_STORAGE = "reel_groq_key";
+const CHUNK_SEC = 600;          // 10 minutes
+const MAX_DIRECT_BYTES = 24 * 1024 * 1024;
+const DIRECT_EXTS = ["mp3", "mp4", "m4a", "wav", "webm", "ogg", "flac", "mpeg", "mpga"];
+const CONCURRENCY = 2;
+
+const state = {
+  file: null, url: null, duration: 0, peaks: null,
+  segments: [], rows: [], transcribedTo: 0, activeIdx: -1,
+  phase: "idle", running: false, cancelRequested: false,
+  startedAt: 0, wake: null, abortControllers: [],
+};
+const media = $("media");
+const canvas = $("wave");
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------------- formatting ---------------- */
+const pad = (n, l = 2) => String(n).padStart(l, "0");
+function fmtTime(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+function stamp(sec, sep) {
+  const ms = Math.round(sec * 1000);
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000), r = ms % 1000;
+  return `${pad(h)}:${pad(m)}:${pad(s)}${sep}${pad(r, 3)}`;
+}
+function fmtSize(b) {
+  if (b >= 1e9) return (b / 1e9).toFixed(1) + " GB";
+  return Math.max(1, Math.round(b / 1e6)) + " MB";
+}
+function fmtLeft(sec) {
+  if (!isFinite(sec) || sec < 60) return "under a minute";
+  const mins = Math.ceil(sec / 60);
+  if (mins < 60) return mins + " min";
+  return `${Math.floor(mins / 60)} h ${mins % 60} min`;
+}
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2400);
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ---------------- API key ---------------- */
+function getKey() { return (localStorage.getItem(KEY_STORAGE) || "").trim(); }
+function renderKeyStatus(msg, ok) {
+  const el = $("keyStatus");
+  el.textContent = msg || "";
+  el.className = "keystatus" + (ok === true ? " ok" : ok === false ? " bad" : "");
+}
+function initKey() {
+  const saved = getKey();
+  if (saved) {
+    $("apiKey").value = saved;
+    renderKeyStatus("Key saved in this browser. You can transcribe now.", true);
+  } else {
+    renderKeyStatus("No key saved yet.", null);
+  }
+}
+$("saveKeyBtn").addEventListener("click", () => {
+  const v = $("apiKey").value.trim();
+  if (!v.startsWith("gsk_")) { renderKeyStatus("That does not look like a Groq key — it should start with gsk_. Copy it again from console.groq.com/keys.", false); return; }
+  localStorage.setItem(KEY_STORAGE, v);
+  renderKeyStatus("Key saved in this browser. You can transcribe now.", true);
+  toast("Groq key saved");
+});
+$("clearKeyBtn").addEventListener("click", () => {
+  localStorage.removeItem(KEY_STORAGE);
+  $("apiKey").value = "";
+  renderKeyStatus("Key cleared.", null);
+  toast("Groq key cleared");
+});
+$("toggleKeyBtn").addEventListener("click", () => {
+  const inp = $("apiKey");
+  const show = inp.type === "password";
+  inp.type = show ? "text" : "password";
+  $("toggleKeyBtn").textContent = show ? "Hide" : "Show";
+});
+$("apiKey").addEventListener("input", () => {
+  if (!$("apiKey").value.trim()) renderKeyStatus("No key saved yet.", null);
+});
+
+/* ---------------- audio decoding + WAV ---------------- */
+async function decodeFile(file) {
+  let buf;
+  try { buf = await file.arrayBuffer(); } catch (e) { throw new Error("MEMORY"); }
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx({ sampleRate: SR });
+  let decoded;
+  try { decoded = await ctx.decodeAudioData(buf); }
+  catch (e) { throw new Error("DECODE"); }
+  finally { try { ctx.close(); } catch (e) {} }
+  if (decoded.sampleRate !== SR) {
+    const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * SR), SR);
+    const src = off.createBufferSource(); src.buffer = decoded;
+    src.connect(off.destination); src.start();
+    decoded = await off.startRendering();
+  }
+  const ch = decoded.numberOfChannels, len = decoded.length;
+  if (ch === 1) return decoded.getChannelData(0).slice();
+  const out = new Float32Array(len);
+  for (let c = 0; c < ch; c++) {
+    const d = decoded.getChannelData(c);
+    for (let i = 0; i < len; i++) out[i] += d[i];
+  }
+  for (let i = 0; i < len; i++) out[i] /= ch;
+  return out;
+}
+function computePeaks(a, n) {
+  const block = Math.floor(a.length / n) || 1;
+  const peaks = new Float32Array(n);
+  let max = 0.0001;
+  for (let i = 0; i < n; i++) {
+    let m = 0; const s = i * block, e = Math.min(a.length, s + block);
+    const step = Math.max(1, Math.floor(block / 200));
+    for (let j = s; j < e; j += step) { const v = Math.abs(a[j]); if (v > m) m = v; }
+    peaks[i] = m; if (m > max) max = m;
+  }
+  for (let i = 0; i < n; i++) peaks[i] = Math.sqrt(peaks[i] / max);
+  return peaks;
+}
+function isSilent(a) {
+  let sum = 0, n = 0;
+  for (let i = 0; i < a.length; i += 16) { sum += a[i] * a[i]; n++; }
+  return Math.sqrt(sum / Math.max(1, n)) < 0.003;
+}
+// 16-bit PCM WAV, 16 kHz mono. 10 min = ~19 MB, under Groq's 25 MB limit.
+function floatToWavBlob(samples) {
+  const n = samples.length;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  writeStr(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); writeStr(8, "WAVE");
+  writeStr(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, SR, true); v.setUint32(28, SR * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  writeStr(36, "data"); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+// Find a quiet spot near the target cut, so we do not cut a word in half.
+function findCut(audio, target, searchSec) {
+  const win = Math.floor(0.5 * SR); // 0.5 s windows
+  const lo = Math.max(0, target - searchSec * SR);
+  const hi = Math.min(audio.length - win, target + searchSec * SR);
+  if (hi <= lo) return target;
+  let best = target, bestRms = Infinity;
+  for (let s = lo; s < hi; s += win) {
+    let sum = 0; const e = Math.min(audio.length, s + win);
+    for (let i = s; i < e; i += 4) sum += audio[i] * audio[i];
+    const rms = sum / Math.max(1, Math.floor((e - s) / 4));
+    if (rms < bestRms) { bestRms = rms; best = s + Math.floor(win / 2); }
+  }
+  return best;
+}
+function makeChunks(audio) {
+  const chunks = [];
+  const total = audio.length;
+  let start = 0;
+  while (start < total) {
+    const idealEnd = Math.min(total, start + CHUNK_SEC * SR);
+    if (idealEnd >= total) { chunks.push({ start, end: total }); break; }
+    // Do not leave a tiny tail chunk: if the rest is under 60 s, take it all.
+    if (total - idealEnd < 60 * SR) { chunks.push({ start, end: total }); break; }
+    const cut = findCut(audio, idealEnd, 20);
+    const safeCut = Math.max(start + 60 * SR, Math.min(cut, idealEnd + 20 * SR));
+    chunks.push({ start, end: safeCut });
+    start = safeCut;
+  }
+  return chunks;
+}
+
+/* ---------------- Groq ---------------- */
+const selectedModel = () => document.querySelector('input[name="model"]:checked').value;
+const selectedLang = () => $("lang").value;
+
+async function groqTranscribe(blob, filename, attempt) {
+  const key = getKey();
+  const form = new FormData();
+  form.append("file", blob, filename);
+  form.append("model", selectedModel());
+  if (selectedLang() !== "auto") form.append("language", selectedLang());
+  form.append("response_format", "verbose_json");
+  form.append("timestamp_granularities[]", "segment");
+  const ctrl = new AbortController();
+  state.abortControllers.push(ctrl);
+  let res;
+  try {
+    res = await fetch(GROQ_URL, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + key },
+      body: form,
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if (state.cancelRequested) throw new Error("CANCELLED");
+    throw new Error("NETWORK");
+  }
+  if (res.status === 429 && attempt < 3) {
+    const retryAfter = parseInt(res.headers.get("retry-after") || "0", 10);
+    const wait = (retryAfter > 0 ? retryAfter * 1000 : 2000 * Math.pow(2, attempt));
+    setStatus(`Groq is busy (rate limit). Waiting ${Math.ceil(wait / 1000)}s and trying again.`);
+    await sleep(wait);
+    if (state.cancelRequested) throw new Error("CANCELLED");
+    return groqTranscribe(blob, filename, attempt + 1);
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { const j = await res.json(); detail = (j && j.error && j.error.message) || ""; } catch (e) {}
+    if (res.status === 401) throw new Error("BAD_KEY");
+    if (res.status === 413) throw new Error("TOO_LARGE");
+    throw new Error("GROQ_" + res.status + (detail ? ": " + detail : ""));
+  }
+  return res.json();
+}
+function groqSegmentsToOurs(data, offsetSec) {
+  const out = [];
+  for (const c of (data && data.segments) || []) {
+    const text = (c.text || "").trim();
+    if (!text || /^[\s.\u2026-]+$/.test(text)) continue;
+    const s = (typeof c.start === "number" ? c.start : 0) + offsetSec;
+    let e = (typeof c.end === "number" ? c.end : null);
+    e = (e == null || e < c.start ? (c.start || 0) + 5 : e) + offsetSec;
+    out.push({ start: s, end: e, text });
+  }
+  // If Groq returned plain text only, keep it as one segment.
+  if (!out.length && data && typeof data.text === "string" && data.text.trim()) {
+    out.push({ start: offsetSec, end: offsetSec + (data.duration || 0), text: data.text.trim() });
+  }
+  return out;
+}
+
+/* ---------------- job flow ---------------- */
+function setStatus(t) { $("statusText").textContent = t; }
+function showNotice(t) { $("notice").textContent = t; $("notice").hidden = false; }
+function hideNotice() { $("notice").hidden = true; }
+function setProgress(frac) {
+  $("loadBar").hidden = false;
+  $("loadFill").style.width = Math.round(Math.min(100, Math.max(0, frac * 100))) + "%";
+}
+async function lockScreen() { try { if (navigator.wakeLock) state.wake = await navigator.wakeLock.request("screen"); } catch (e) {} }
+function unlockScreen() { if (state.wake) { state.wake.release().catch(() => {}); state.wake = null; } }
+function setPhase(p) {
+  state.phase = p;
+  const running = p === "decoding" || p === "transcribing";
+  const wasRunning = state.running;
+  state.running = running;
+  $("cancelBtn").hidden = !running;
+  $("againBtn").hidden = running;
+  $("loadBar").hidden = !running;
+  document.body.classList.toggle("busy", running);
+  if (running && !wasRunning) lockScreen();
+  if (!running && wasRunning) unlockScreen();
+}
+window.addEventListener("beforeunload", (e) => { if (state.running) { e.preventDefault(); e.returnValue = ""; } });
+
+async function startJob() {
+  if (!state.file || state.running) return;
+  if (!getKey()) {
+    showNotice("Add your free Groq API key first — get one at console.groq.com/keys, paste it above and click Save key.");
+    document.getElementById("apiKeyBox").scrollIntoView({ behavior: "smooth", block: "center" });
+    $("apiKey").focus();
+    return;
+  }
+  state.cancelRequested = false;
+  state.abortControllers = [];
+  clearTranscript();
+  hideNotice();
+  try {
+    setPhase("decoding");
+    setStatus("Reading the audio from your file. Long recordings take a moment.");
+    setProgress(0.02);
+    const audio = await decodeFile(state.file);
+    state.duration = audio.length / SR;
+    state.peaks = computePeaks(audio, 220);
+    updateMeta();
+    drawWave();
+    if (state.cancelRequested) return onStopped();
+
+    setPhase("transcribing");
+    state.startedAt = performance.now();
+    const baseName = state.file.name.replace(/\.[^.]+$/, "") || "audio";
+    const ext = (state.file.name.split(".").pop() || "").toLowerCase();
+
+    // Fast path: small file Groq accepts directly — send the original file as-is.
+    if (state.file.size <= MAX_DIRECT_BYTES && DIRECT_EXTS.includes(ext)) {
+      setStatus("Sending your file to Groq (1 of 1).");
+      setProgress(0.1);
+      const data = await groqTranscribe(state.file, state.file.name, 0);
+      if (state.cancelRequested) return onStopped();
+      for (const s of groqSegmentsToOurs(data, 0)) addSegment(s);
+      state.transcribedTo = state.duration;
+      setProgress(1);
+      return onDone();
+    }
+
+    // Long / big file: split into ~10-minute WAV chunks, 2 at a time.
+    const chunks = makeChunks(audio);
+    setStatus(`Splitting into ${chunks.length} piece${chunks.length === 1 ? "" : "s"} of about 10 minutes each, then sending them to Groq.`);
+    const results = new Array(chunks.length);
+    let nextToShow = 0;
+    let doneCount = 0;
+    let nextIndex = 0;
+
+    const flushInOrder = () => {
+      while (nextToShow < chunks.length && results[nextToShow]) {
+        for (const s of results[nextToShow]) addSegment(s);
+        state.transcribedTo = chunks[nextToShow].end / SR;
+        nextToShow++;
+        setProgress(state.transcribedTo / state.duration);
+        drawWave();
+      }
+    };
+    const runOne = async (idx) => {
+      const c = chunks[idx];
+      const slice = audio.subarray(c.start, c.end);
+      if (isSilent(slice)) { results[idx] = []; doneCount++; flushInOrder(); return; }
+      const wav = floatToWavBlob(slice);
+      const data = await groqTranscribe(wav, `${baseName}-part${idx + 1}.wav`, 0);
+      results[idx] = groqSegmentsToOurs(data, c.start / SR);
+      doneCount++;
+      const elapsed = (performance.now() - state.startedAt) / 1000;
+      const processed = c.end / SR;
+      const speed = processed / Math.max(elapsed, 0.001);
+      const left = (state.duration - processed) / Math.max(speed, 0.01);
+      setStatus(`Groq: piece ${doneCount} of ${chunks.length} done — ${fmtTime(processed)} of ${fmtTime(state.duration)}. About ${fmtLeft(left)} left.`);
+      flushInOrder();
+    };
+    const workers = [];
+    for (let w = 0; w < Math.min(CONCURRENCY, chunks.length); w++) {
+      workers.push((async () => {
+        while (nextIndex < chunks.length) {
+          if (state.cancelRequested) return;
+          const idx = nextIndex++;
+          await runOne(idx);
+        }
+      })());
+    }
+    await Promise.all(workers);
+    if (state.cancelRequested) return onStopped();
+    flushInOrder();
+    state.transcribedTo = state.duration;
+    setProgress(1);
+    onDone();
+  } catch (err) {
+    if (err && err.message === "CANCELLED") return onStopped();
+    fail(err);
+  }
+}
+function fail(err) {
+  console.error(err);
+  setPhase("error");
+  let msg;
+  if (err.message === "DECODE") msg = "Your browser couldn't read the audio in this file. Convert it to MP4, MP3 or WAV and try again.";
+  else if (err.message === "MEMORY") msg = "This file is too big for your browser to open at once. Extract the audio as an MP3 first, which makes it far smaller, and try again.";
+  else if (err.message === "BAD_KEY") msg = "Groq said the API key is wrong (401). Copy a fresh key from console.groq.com/keys, paste it above and click Save key.";
+  else if (err.message === "TOO_LARGE") msg = "Groq said the piece was too large. Try a shorter file, or pick a smaller audio file.";
+  else if (err.message === "NETWORK") msg = "Could not reach Groq. Check your internet connection and try again.";
+  else if (err.message && err.message.startsWith("GROQ_429")) msg = "Groq rate limit — you sent too much too fast. Wait a minute and press Transcribe again. Free tier is 20 requests a minute and 8 hours of audio a day.";
+  else if (err.message && err.message.startsWith("GROQ_")) msg = "Groq returned an error: " + err.message + ".";
+  else msg = "Something went wrong: " + err.message + ".";
+  setStatus("Stopped because of an error.");
+  showNotice(msg);
+}
+function onStopped() {
+  setPhase("stopped");
+  for (const c of state.abortControllers) { try { c.abort(); } catch (e) {} }
+  setStatus(state.segments.length ? `Stopped at ${fmtTime(state.transcribedTo)}. The transcript so far is below.` : "Stopped.");
+  drawWave();
+}
+function onDone() {
+  state.transcribedTo = state.duration;
+  const elapsed = (performance.now() - state.startedAt) / 1000;
+  setPhase("done");
+  if (!state.segments.length) {
+    setStatus("Finished, but no speech was found.");
+    showNotice("Groq didn't hear any speech. If the recording does have talking in it, try choosing the language yourself and transcribe again.");
+  } else {
+    setStatus(`Finished in ${fmtLeft(elapsed)}. ${state.segments.length} segments.`);
+  }
+  drawWave();
+}
+
+/* ---------------- file handling ---------------- */
+const VIDEO_EXT = ["mp4", "mov", "mkv", "avi", "webm", "m4v"];
+const AUDIO_EXT = ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"];
+const extOf = (f) => (f.name.split(".").pop() || "").toLowerCase();
+const isVideo = (f) => f.type.startsWith("video") || VIDEO_EXT.includes(extOf(f));
+const isMedia = (f) => f.type.startsWith("audio") || f.type.startsWith("video") || VIDEO_EXT.includes(extOf(f)) || AUDIO_EXT.includes(extOf(f));
+function handleFile(file) {
+  if (!file) return;
+  if (state.running) { toast("Stop the current job before choosing another file."); return; }
+  if (!isMedia(file)) { toast("That doesn't look like an audio or video file."); return; }
+  if (state.url) URL.revokeObjectURL(state.url);
+  state.file = file;
+  state.url = URL.createObjectURL(file);
+  state.duration = 0; state.peaks = null;
+  media.src = state.url;
+  media.classList.toggle("audio-only", !isVideo(file));
+  $("work").hidden = false;
+  document.body.classList.add("has-file");
+  $("fileName").textContent = file.name;
+  updateMeta();
+  drawWave();
+  startJob();
+}
+function updateMeta() {
+  if (!state.file) return;
+  const size = fmtSize(state.file.size);
+  $("fileMeta").textContent = state.duration ? `${fmtTime(state.duration)} of audio, ${size}` : size;
+}
+const drop = $("drop");
+$("fileInput").addEventListener("change", (e) => { handleFile(e.target.files[0]); e.target.value = ""; });
+window.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drag"); });
+window.addEventListener("dragleave", (e) => { if (!e.relatedTarget) drop.classList.remove("drag"); });
+window.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("drag"); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
+drop.addEventListener("click", (e) => { if (state.running) { e.preventDefault(); toast("Stop the current job before choosing another file."); } });
+$("cancelBtn").addEventListener("click", () => {
+  state.cancelRequested = true;
+  setStatus("Stopping.");
+  for (const c of state.abortControllers) { try { c.abort(); } catch (e) {} }
+});
+$("againBtn").addEventListener("click", startJob);
+
+/* ---------------- transcript ---------------- */
+function clearTranscript() {
+  state.segments = []; state.rows = []; state.transcribedTo = 0; state.activeIdx = -1;
+  $("segments").innerHTML = ""; $("empty").hidden = false; $("searchCount").textContent = "";
+  setToolsEnabled(false);
+}
+function setToolsEnabled(on) {
+  $("copyBtn").disabled = !on;
+  $("dlMenu").setAttribute("aria-disabled", on ? "false" : "true");
+  if (!on) $("dlMenu").open = false;
+}
+function addSegment(s) {
+  const i = state.segments.length;
+  state.segments.push(s);
+  const li = document.createElement("li"); li.className = "seg";
+  const b = document.createElement("button"); b.className = "ts"; b.textContent = fmtTime(s.start);
+  b.setAttribute("aria-label", "Play from " + fmtTime(s.start));
+  b.addEventListener("click", () => seek(s.start, true));
+  const p = document.createElement("p"); p.className = "txt"; p.textContent = s.text;
+  li.append(b, p); $("segments").append(li);
+  state.rows.push({ li, p });
+  $("empty").hidden = true;
+  setToolsEnabled(true);
+  applySearchToRow(i);
+  const scroller = $("scroller");
+  if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 90 && media.paused) scroller.scrollTop = scroller.scrollHeight;
+}
+function seek(t, play) { media.currentTime = t; if (play) media.play().catch(() => {}); }
+function highlight(text, q) {
+  const lt = text.toLowerCase(), lq = q.toLowerCase();
+  let out = "", pos = 0, idx;
+  while ((idx = lt.indexOf(lq, pos)) !== -1) {
+    out += esc(text.slice(pos, idx)) + "<mark>" + esc(text.slice(idx, idx + q.length)) + "</mark>";
+    pos = idx + q.length;
+  }
+  return out + esc(text.slice(pos));
+}
+function applySearchToRow(i) {
+  const q = $("search").value.trim();
+  const { li, p } = state.rows[i];
+  const text = state.segments[i].text;
+  if (!q) { li.hidden = false; if (p.dataset.hl) { p.textContent = text; delete p.dataset.hl; } return false; }
+  const hit = text.toLowerCase().includes(q.toLowerCase());
+  li.hidden = !hit;
+  if (hit) { p.innerHTML = highlight(text, q); p.dataset.hl = "1"; }
+  else if (p.dataset.hl) { p.textContent = text; delete p.dataset.hl; }
+  return hit;
+}
+function applySearch() {
+  const q = $("search").value.trim();
+  let count = 0;
+  for (let i = 0; i < state.rows.length; i++) if (applySearchToRow(i)) count++;
+  $("searchCount").textContent = q ? `${count} ${count === 1 ? "match" : "matches"}` : "";
+}
+$("search").addEventListener("input", applySearch);
+
+/* ---------------- playback sync ---------------- */
+function findSegment(t) {
+  const a = state.segments;
+  let lo = 0, hi = a.length - 1, ans = -1;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (a[mid].start <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
+  if (ans >= 0 && t > a[ans].end + 1.5) return -1;
+  return ans;
+}
+function tick() {
+  const idx = findSegment(media.currentTime);
+  if (idx !== state.activeIdx) {
+    if (state.rows[state.activeIdx]) state.rows[state.activeIdx].li.classList.remove("playing");
+    if (state.rows[idx]) {
+      const li = state.rows[idx].li; li.classList.add("playing");
+      if ($("followToggle").checked && !media.paused && !li.hidden) {
+        const sc = $("scroller");
+        sc.scrollTo({ top: li.offsetTop - sc.clientHeight / 3, behavior: reduceMotion ? "auto" : "smooth" });
+      }
+    }
+    state.activeIdx = idx;
+  }
+  drawWave();
+  if (!media.paused && !media.ended) requestAnimationFrame(tick);
+}
+media.addEventListener("play", () => requestAnimationFrame(tick));
+media.addEventListener("seeked", tick);
+media.addEventListener("pause", tick);
+
+/* ---------------- waveform ---------------- */
+const css = getComputedStyle(document.documentElement);
+const COLORS = { bar: css.getPropertyValue("--bar").trim(), done: css.getPropertyValue("--accent").trim(), head: css.getPropertyValue("--ink").trim() };
+function drawWave() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+  const g = canvas.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const peaks = state.peaks;
+  if (!peaks) { g.fillStyle = COLORS.bar; g.fillRect(0, h / 2 - 1, w, 2); return; }
+  const n = peaks.length, bw = w / n;
+  const doneFrac = state.duration ? state.transcribedTo / state.duration : 0;
+  for (let i = 0; i < n; i++) {
+    const amp = Math.max(3, peaks[i] * (h - 8));
+    g.fillStyle = (i + 0.5) / n <= doneFrac ? COLORS.done : COLORS.bar;
+    g.fillRect(i * bw + 1, (h - amp) / 2, Math.max(1, bw - 2), amp);
+  }
+  if (state.duration && media.currentTime > 0) {
+    const x = Math.min(w - 2, (media.currentTime / state.duration) * w);
+    g.fillStyle = COLORS.head; g.fillRect(x - 1, 0, 2, h);
+  }
+}
+new ResizeObserver(drawWave).observe(canvas);
+canvas.addEventListener("click", (e) => {
+  if (!state.duration) return;
+  const r = canvas.getBoundingClientRect();
+  seek(((e.clientX - r.left) / r.width) * state.duration, true);
+});
+
+/* ---------------- copy and download ---------------- */
+function buildText() {
+  const withTs = $("tsToggle").checked;
+  return state.segments.map((s) => (withTs ? `[${fmtTime(s.start)}] ${s.text}` : s.text)).join(withTs ? "\n" : " ");
+}
+function save(name, text, type) {
+  const blob = new Blob([text], { type: type + ";charset=utf-8" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$("copyBtn").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(buildText()); toast("Copied the transcript"); }
+  catch (e) { toast("Your browser blocked copying. Use Download instead."); }
+});
+document.querySelectorAll("#dlMenu [data-fmt]").forEach((btn) => btn.addEventListener("click", () => {
+  const base = state.file ? state.file.name.replace(/\.[^.]+$/, "") : "transcript";
+  const fmt = btn.dataset.fmt; const segs = state.segments;
+  if (fmt === "txt") save(`${base}.txt`, buildText(), "text/plain");
+  if (fmt === "srt") save(`${base}.srt`, segs.map((s, i) => `${i + 1}\n${stamp(s.start, ",")} --> ${stamp(s.end, ",")}\n${s.text}\n`).join("\n"), "application/x-subrip");
+  if (fmt === "vtt") save(`${base}.vtt`, "WEBVTT\n\n" + segs.map((s) => `${stamp(s.start, ".")} --> ${stamp(s.end, ".")}\n${s.text}\n`).join("\n"), "text/vtt");
+  if (fmt === "json") save(`${base}.json`, JSON.stringify({ file: state.file ? state.file.name : "", duration_seconds: Math.round(state.duration * 100) / 100, model: selectedModel(), segments: segs.map((s) => ({ start: Math.round(s.start * 100) / 100, end: Math.round(s.end * 100) / 100, text: s.text })) }, null, 2), "application/json");
+  $("dlMenu").open = false;
+}));
+document.addEventListener("click", (e) => { const m = $("dlMenu"); if (m.open && !m.contains(e.target)) m.open = false; });
+
+/* ---------------- start ---------------- */
+initKey();
+</script>
+</body>
+</html>
